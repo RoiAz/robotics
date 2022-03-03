@@ -1,12 +1,12 @@
 from DroneClient import DroneClient
 import time
 import math
-import numpy
 import airsim.utils
 
 pwr_factor = -2
+fix_factor = -100
 coeff_factor = 35
-wait_time = 1
+wait_time = 0.2
 MAX_TIME = 0.62
 slowing_distance = 3
 DEST_ARRIVED_DIST = 1.5
@@ -31,10 +31,19 @@ class DroneControl:
 
     def create_new_dest(self):
         dest_x = self.curr_flight_dest[0]
+        dest_z = self.curr_flight_dest[2]
         lid_data = self.drone.getLidarData()
-        points = self.parse_lidarData(lid_data)
-        new_dest_x = dest_x + coeff_factor * math.exp(pwr_factor * points[0])
-        self.curr_flight_dest[0] = new_dest_x
+        print("lidar pointsss")
+        print(lid_data.points[0])
+        new_dest_x = dest_x + coeff_factor * math.exp(pwr_factor * lid_data.points[0])
+        curr_pos = self.drone.getPose()
+        curr_z = curr_pos.pos.z_m
+        curr_x_rad = curr_pos.orientation.x_rad
+        new_dest_z = dest_z + math.exp(curr_x_rad * fix_factor) * (dest_z - curr_z)
+        dest_lst = list(self.curr_flight_dest)
+        dest_lst[0] = new_dest_x
+        dest_lst[2] = new_dest_z
+        self.curr_flight_dest = tuple(dest_lst)
         return self.curr_flight_dest
 
     def fly_to_dest(self, dest):
@@ -53,18 +62,29 @@ class DroneControl:
             return True
 
         if self.check_clear_path(dest):
-            self.curr_flight_dest = dest
-            speed = self.get_max_speed(dest)
+            dest_z = dest[2]
+            curr_pos = self.drone.getPose()
+            curr_z = curr_pos.pos.z_m
+            curr_x_rad = curr_pos.orientation.x_rad
+            new_dest_z = dest_z + math.exp(curr_x_rad * fix_factor) * (dest_z - curr_z)
+            dest_lst = list(self.curr_flight_dest)
+            dest_lst[2] = new_dest_z
+            self.curr_flight_dest = tuple(dest_lst)
+            speed = self.get_max_speed(self.curr_flight_dest)
             print("when clear fly to:")
-            print(dest)
-            self.drone.flyToPosition(*dest, speed)
+            print(self.curr_flight_dest)
+            self.drone.flyToPosition(*self.curr_flight_dest, speed)
+
         else:
-            while not self.check_clear_path(dest):
+            new_dest = dest
+            while not self.check_clear_path(new_dest):
                 new_dest = self.create_new_dest()
                 speed = self.get_max_speed(new_dest)
                 print("when wall fly to:")
                 print(new_dest)
-                self.drone.flyToPosition(*dest, speed)
+                self.drone.flyToPosition(*new_dest, speed)
+                print("current pose:")
+                print(client.getPose())
                 time.sleep(wait_time)
 
             # follow until no wall, create new dest with sensitivity parameter to change the angle
@@ -93,12 +113,6 @@ class DroneControl:
             return True
         return False
 
-    def parse_lidarData(self, data):
-        # reshape array of floats to array of [X,Y,Z]
-        points = numpy.array(data.point_cloud, dtype=numpy.dtype('f4'))
-        points = numpy.reshape(points, (int(points.shape[0] / 3), 3))
-        return points
-
     def check_clear_path(self, dest):
         lid_data = self.drone.getLidarData()
         print(lid_data.points)
@@ -120,7 +134,7 @@ if __name__ == "__main__":
     client.setAtPosition(-346, -700, -100)
 
     time.sleep(3)
-    dest = (-346, -420, -100)
+    dest = (-346, -100, -100)
     controller = DroneControl(client, dest)
     reach_to_dest = False
     loop_counter = 0
@@ -133,8 +147,6 @@ if __name__ == "__main__":
         reach_to_dest = controller.fly_to_dest(dest=dest)
         if reach_to_dest:
             break
-
-        print(client.getLidarData())
 
         time.sleep(wait_time)
         loop_counter = loop_counter + 1
