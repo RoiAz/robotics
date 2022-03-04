@@ -6,7 +6,7 @@ import airsim.utils
 pwr_factor = 2
 fix_factor = -10
 coeff_factor = 35
-wait_time = 1
+wait_time = 0.5
 MAX_TIME = 0.62
 slowing_distance = 3
 DEST_ARRIVED_DIST = 3
@@ -17,6 +17,8 @@ WALL_WAIT = 1
 STOP_THRESH = 35
 BACK_DIST = 10
 MAX_LIDAR = 35
+WAIT_SPIN = 0.2
+
 
 class DroneControl:
     def __init__(self, client, final_dest):
@@ -48,36 +50,10 @@ class DroneControl:
             dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2)
         return dist_left
 
-    def create_new_dest(self):
-        dest_x = self.curr_flight_dest[0]
-        dest_y = self.curr_flight_dest[1]
-        dest_z = self.curr_flight_dest[2]
-        lid_data = self.drone.getLidarData()
-        print("lidar pointsss")
-        print(lid_data.points[0])
-        #  x_delta = math.copysign(1, dest_x) * coeff_factor * math.exp(pwr_factor * lid_data.points[0])
-        x_delta = math.copysign(1, dest_x) * coeff_factor * lid_data.points[0]
-        print("x delta:")
-        print(x_delta)
-        new_dest_x = dest_x + x_delta
-        # y_delta = math.copysign(1, dest_y) * coeff_factor * math.exp(pwr_factor * lid_data.points[0])
-        y_delta = math.copysign(1, dest_y) * coeff_factor * lid_data.points[0]
-        new_dest_y = dest_y - y_delta
-        curr_pos = self.drone.getPose()
-        curr_z = curr_pos.pos.z_m
-        curr_x_rad = curr_pos.orientation.x_rad
-        new_dest_z = dest_z + math.exp(curr_x_rad * fix_factor) * (dest_z - curr_z) * math.log(
-            max(2, self.current_speed))
-        dest_lst = list(self.curr_flight_dest)
-        dest_lst[0] = new_dest_x
-        dest_lst[1] = new_dest_y
-        dest_lst[2] = new_dest_z
-        self.curr_flight_dest = tuple(dest_lst)
-        return self.curr_flight_dest
-
     def isPassedTheWall(self, dest, last_dist_from_wall):
+        self.current_speed = 0
         self.drone.flyToPosition(*self.final_dest, 0)
-        #time.sleep(wait_time)
+        time.sleep(WAIT_SPIN)
         lid_data = self.drone.getLidarData()
         print("lidar pointsss")
         print(lid_data)
@@ -115,6 +91,7 @@ class DroneControl:
         while not self.isPassedTheWall(dest, last_dist_from_wall):
             print("followTheWall:")
             new_dest = self.createWallDest(dest)
+            self.current_speed = WALL_SPEED
             self.drone.flyToPosition(*new_dest, WALL_SPEED)
             time.sleep(WALL_WAIT)
 
@@ -145,8 +122,6 @@ class DroneControl:
             dest_lst[2] = new_dest_z
             self.curr_flight_dest = tuple(dest_lst)
             speed = self.get_max_speed(self.curr_flight_dest)
-            # curr_x_rad = curr_pos.orientation.x_rad
-            curr_x_rad = 1
             new_dest_z = dest_z + math.copysign(1, dest_z) * math.exp(curr_x_rad * fix_factor) * (
                     dest_z - curr_z) * math.log(max(2, self.current_speed))
             dest_lst = list(dest)
@@ -208,6 +183,8 @@ class DroneControl:
         return False
 
     def check_clear_path(self, dest):
+        self.drone.flyToPosition(*self.final_dest, self.current_speed)
+        time.sleep(WAIT_SPIN)
         lid_data = self.drone.getLidarData()
         print("check_clear_path, lidar pointsss")
         print(lid_data.points[0])
@@ -218,26 +195,8 @@ class DroneControl:
             return True
         elif STOP_THRESH < lid_data.points[0]:
             return True
+        self.current_speed = 0
         self.drone.flyToPosition(*self.final_dest, 0)
-        #curr_pos = self.drone.getPose()
-        # curr_x = curr_pos.pos.x_m
-        # curr_y = curr_pos.pos.y_m
-        # curr_z = curr_pos.pos.z_m
-        # # dest_lst = list(dest)
-        # # back_dist = (MAX_LIDAR - lid_data.points[0]) / 1.4
-        # # dest_lst[0] = curr_x - self.x_direction * back_dist
-        # # dest_lst[1] = curr_y - self.y_direction * back_dist
-        # # dest_lst[2] = curr_z
-        # # coll_dest = tuple(dest_lst)
-        # # self.drone.flyToPosition(*coll_dest, WALL_SPEED)
-        # # time.sleep(wait_time)
-        # # dest_lst = list(dest)
-        # # dest_lst[0] = curr_x
-        # # dest_lst[1] = curr_y
-        # # dest_lst[2] = curr_z
-        # # coll_dest = tuple(dest_lst)
-        # # self.drone.flyToPosition(*coll_dest, 0)
-        # # time.sleep(wait_time)
         return False
 
 
@@ -265,5 +224,5 @@ if __name__ == "__main__":
         if reach_to_dest:
             break
 
-        time.sleep(wait_time)
+        # time.sleep(wait_time)
         loop_counter = loop_counter + 1
