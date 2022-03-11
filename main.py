@@ -1,191 +1,93 @@
+import numpy as np
+
 from DroneClient import DroneClient
 import time
 import math
 import airsim.utils
+import numpy
 
-pwr_factor = 2
-fix_factor = -10
-coeff_factor = 35
-wait_time = 0.2
-MAX_TIME = 0.62
-slowing_distance = 3
 DEST_ARRIVED_DIST = 3
+SLOWING_DIST = 7
 MAX_SPEED = 15
-WALL_SPEED = 5
+MAX_TIME = 0.62
 URBAN_SPEED = 5
-URBAN_WAIT = 0.2
-WALL_DELTA = 8
-WALL_WAIT = 0.2
-STOP_THRESH = 12
-WALL_MIN_DIST = 1
-
-BACK_DIST = WALL_DELTA * WALL_DELTA
-MAX_LIDAR = 35
-WAIT_SPIN = 0.5
+WALL_SPEED = 5
 WAIT_LIDAR = 0.1
+STOP_THRESH = 12
+WAIT_SPIN = 0.5
+
+DEFAULT_FLY_WAIT = 1
 
 
 class DroneControl:
     def __init__(self, client, final_dest):
         self.drone = client
-        self.curr_flight_dest = final_dest
         self.final_dest = final_dest
         self.current_speed = 0
-        self.x_direction, self.y_direction = self.get_direction(final_dest)
 
-    def get_direction(self, final_dest):
+    def calcRx(self, rad):
+        cos_deg = math.cos(rad)
+        sin_deg = math.sin(rad)
+        RX = np.array([[1, 0, 0],
+                       [0, cos_deg, sin_deg],
+                       [0, -sin_deg, cos_deg]])
+        return RX
+
+    def calcRy(self, rad):
+        cos_deg = math.cos(rad)
+        sin_deg = math.sin(rad)
+        RY = np.array([[cos_deg, 0, -sin_deg],
+                       [0, 1, 0],
+                       [sin_deg, 0, cos_deg]])
+        return RY
+
+    def calcRz(self, rad):
+        cos_deg = math.cos(rad)
+        sin_deg = math.sin(rad)
+        RZ = np.array([[cos_deg, sin_deg, 0],
+                       [-sin_deg, cos_deg, 0],
+                       [0, 0, 1]])
+        return RZ
+
+    def getRotMatrix(self, pos):
+        rx = self.calcRx(pos.orientation.x_rad)
+        ry = self.calcRx(pos.orientation.y_rad)
+        rz = self.calcRx(pos.orientation.z_rad)
+        rot_matrix = np.matmul(rx, np.matmul(ry, rz))
+        return rot_matrix
+
+    def getTranslationMatrix(self):
+        pos = self.drone.getPose()
+        rot_matrix = self.getRotMatrix(pos)
+        trans_matrix = [[*rot_matrix[0], pos.pos.x_m],
+                        [*rot_matrix[1], pos.pos.y_m],
+                        [*rot_matrix[2], pos.pos.z_m],
+                        [0, 0, 0, 1]]
+        return trans_matrix
+
+    def droneP2GlobalP(self, data, pos):
+        drone_point = np.array([data.points[0], data.points[1], data.points[2]])
+        rot_matrix = self.getRotMatrix(pos)
+        global_point = np.matmul(rot_matrix, drone_point) + np.array([pos.pos.x_m, pos.pos.y_m, pos.pos.z_m])
+        return global_point
+
+    def getDistToFinalDest(self):
         curr_pos = self.drone.getPose()
         curr_x = curr_pos.pos.x_m
         curr_y = curr_pos.pos.y_m
-        x_dir = math.copysign(1, final_dest[0] - curr_x)
-        y_dir = math.copysign(1, final_dest[1] - curr_y)
-        return x_dir, y_dir
-
-    def get_dist(self, dest, with_z=False):
-        curr_pos = self.drone.getPose()
-        curr_x = curr_pos.pos.x_m
-        curr_y = curr_pos.pos.y_m
-        dest_x = dest[0]
-        dest_y = dest[1]
-        if with_z:
-            curr_z = curr_pos.pos.z_m
-            dest_z = dest[2]
-            dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2 + (dest_z - curr_z) ** 2)
-        else:
-            dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2)
+        dest_x = self.final_dest[0]
+        dest_y = self.final_dest[1]
+        dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2)
         return dist_left
 
-    def isPassedTheWall(self, dest, last_dist_from_wall):
-        self.current_speed = 0
-        self.drone.flyToPosition(*self.final_dest, 0)
-        time.sleep(WAIT_SPIN)
-        lid_data = self.drone.getLidarData()
-        curr_dist = lid_data.points[0]
-        print("isPassedTheWall:")
-        print(last_dist_from_wall)
-        print(curr_dist)
-        print("$" * 10)
-        print("lidar pointsss")
-        print(lid_data)
+    def slowdown(self):
+        return self.current_speed / 2
 
-        # if ((curr_dist > last_dist_from_wall) and (curr_dist > STOP_THRESH)) or len(lid_data.points) < 3 or curr_dist > STOP_THRESH:
-        if len(lid_data.points) < 3 or curr_dist > STOP_THRESH:
-            # if len(lid_data.points) < 3:
-            global MAX_SPEED
-            global wait_time
-            wait_time = URBAN_WAIT
-            MAX_SPEED = URBAN_SPEED
-            return True
-        return False
-
-    def calcShiftDist(self, lid_dist, is_x=False):
-        if is_x:
-            return max(BACK_DIST - lid_dist, 1)
-        else:
-            return max(WALL_DELTA - lid_dist, 1)
-
-    def createWallDest(self, dest):
-        curr_pos = self.drone.getPose()
-        curr_x = curr_pos.pos.x_m
-        curr_y = curr_pos.pos.y_m
-        curr_z = curr_pos.pos.z_m
-        print("createWallDest:")
-        print(curr_pos)
-        dest_lst = list(dest)
-        lid_data = self.drone.getLidarData()
-        print("lidar pointsss, createWallDest")
-        print(lid_data)
-        shift_dist_x = self.calcShiftDist(lid_data.points[0])
-        shift_dist_y = self.calcShiftDist(lid_data.points[0])
-        # if lid_data.points[0] < WALL_MIN_DIST or lid_data.points[2] < WALL_MIN_DIST:
-        #     print("goBack:")
-        #     dest_lst[0] = curr_x - self.x_direction * BACK_DIST
-        #     dest_lst[1] = curr_y - self.y_direction * BACK_DIST
-        # else:
-        print("follow:")
-        dest_lst[0] = curr_x - self.x_direction * shift_dist_x
-        dest_lst[1] = curr_y + self.y_direction * shift_dist_y
-        dest_z = self.final_dest[2]
-        curr_x_rad = 1
-        new_dest_z = dest_z + math.copysign(1, dest_z) * math.exp(curr_x_rad * fix_factor) * (
-                dest_z - curr_z) * math.log(max(2, self.current_speed))
-        dest_lst[2] = new_dest_z
-        self.curr_flight_dest = tuple(dest_lst)
-        print(self.curr_flight_dest)
-        print("%" * 10)
-        return self.curr_flight_dest
-
-    def followTheWall(self, dest):
-        print("followTheWallMain:")
-        lid_data = self.drone.getLidarData()
-        last_dist_from_wall = lid_data.points[0]
-        print("lidar pointsss")
-        print(lid_data)
-        while not self.isPassedTheWall(dest, last_dist_from_wall):
-            print("followTheWall:")
-            new_dest = self.createWallDest(dest)
-            speed = self.get_max_speed(new_dest, wall=True)
-            self.current_speed = speed
-            self.drone.flyToPosition(*new_dest, WALL_SPEED)
-            time.sleep(WALL_WAIT)
-
-    def fly_to_dest(self, dest):
-        """
-        Fly the drone to position
-        Args:
-            x : float - x coordinate
-            y : float - y coordinate
-            z : float - z coordinate
-            v : float - the velocity which the drone fly to position
-        """
-        print("current pose:")
-        print(client.getPose())
-        if self.check_reach_to_final_dest():
-            return True
-
-        if self.check_clear_path(dest):
-            dest_z = self.final_dest[2]
-            curr_pos = self.drone.getPose()
-            curr_z = curr_pos.pos.z_m
-            curr_x_rad = 1
-            new_dest_z = dest_z + math.copysign(1, dest_z) * math.exp(curr_x_rad * fix_factor) * (
-                    dest_z - curr_z) * math.log(max(2, self.current_speed))
-            dest_lst = list(dest)
-            dest_lst[2] = new_dest_z
-            self.curr_flight_dest = tuple(dest_lst)
-            speed = self.get_max_speed(self.curr_flight_dest)
-            new_dest_z = dest_z + math.copysign(1, dest_z) * math.exp(curr_x_rad * fix_factor) * (
-                    dest_z - curr_z) * math.log(max(2, self.current_speed))
-            dest_lst = list(dest)
-            dest_lst[2] = new_dest_z
-            self.curr_flight_dest = tuple(dest_lst)
-            print("when clear fly to:")
-            print(self.curr_flight_dest)
-            print("with speed:")
-            print(speed)
-            self.drone.flyToPosition(*self.curr_flight_dest, speed)
-            time.sleep(wait_time)
-
-        else:
-            self.followTheWall(dest)
-        return False
-
-    def slowdown(self, obs=False):
-        if obs:
-            lid_data = self.drone.getLidarData()
-            speed = math.exp(pwr_factor * lid_data.points[0])
-        else:
-            speed = int(self.current_speed / 2)
-        return speed
-
-    def get_max_speed(self, dest, obs=False, wall=False):
-        dist_left = self.get_dist(dest)
+    def getMaxSpeed(self, dest, wall=False):
+        dist_left = self.getDistToFinalDest()
         max_possible_speed = dist_left / MAX_TIME
-        if (dest == self.final_dest and dist_left < slowing_distance):
+        if dest == self.final_dest and dist_left < SLOWING_DIST:
             self.current_speed = self.slowdown()
-        # elif if we have obstcale fly slower ?
-        elif obs:
-            self.current_speed = self.slowdown(obs=True)
         elif wall:
             self.current_speed = WALL_SPEED
         else:
@@ -193,30 +95,63 @@ class DroneControl:
         self.current_speed = min(MAX_SPEED, self.current_speed, max_possible_speed)
         return self.current_speed
 
-    def check_reach_to_final_dest(self):
-        dist_left = self.get_dist(self.final_dest, with_z=False)
-        # if self.check_clear_path(self.final_dest) and dist_left <= DEST_ARRIVED_DIST:
+    def ReachToFinalDest(self):
+        dist_left = self.getDistToFinalDest()
         if dist_left <= DEST_ARRIVED_DIST:
             return True
         return False
 
-    def check_clear_path(self, dest):
-        self.drone.flyToPosition(*self.final_dest, URBAN_SPEED)
-        time.sleep(WAIT_SPIN)
+    def checkWallInFront(self):
         lid_data = self.drone.getLidarData()
         print("check_clear_path, lidar pointsss")
         print(lid_data.points[0])
-        time.sleep(WAIT_LIDAR)
-        lid_data2 = self.drone.getLidarData()
-        print(lid_data2.points[0])
-        if len(lid_data.points) < 3 and len(lid_data2.points) < 3:
-            return True
-        dist_left = self.get_dist(dest)
-        if dist_left < lid_data.points[0] and lid_data2.points[0]:
-            return True
-        elif STOP_THRESH < lid_data.points[0] and STOP_THRESH < lid_data2.points[0]:
+        if len(lid_data.points) > 3 and STOP_THRESH > lid_data.points[0]:
+            self.current_speed = 0
+            self.drone.flyToPosition(*self.final_dest, self.current_speed)
             return True
         return False
+
+    def ClearPathToFinalDest(self):
+        self.drone.flyToPosition(*self.final_dest, self.current_speed)
+        time.sleep(WAIT_SPIN)
+        if self.checkWallInFront():
+            return False
+        time.sleep(WAIT_LIDAR)
+        if self.checkWallInFront():
+            return False
+        return True
+
+    def flyToFinalDest(self):
+        if self.ReachToFinalDest():
+            return True
+
+        elif self.ClearPathToFinalDest():
+            self.drone.flyToPosition(*self.final_dest, self.getMaxSpeed())
+            time.sleep(DEFAULT_FLY_WAIT)
+
+        else:
+            self.followTheWall()
+
+    def turnToFinalDest(self):
+        self.current_speed = 0
+        self.drone.flyToPosition(*self.final_dest, self.current_speed)
+        time.sleep(WAIT_SPIN)
+
+    def getNewDest(self, pos, glb_point):
+        if pos.pos.x_m > glb_point[0]:
+            xsign = -1
+
+    def followTheWall(self):
+        self.turnToFinalDest()
+        lid_data = self.drone.getLidarData()
+        while len(lid_data.points) > 3 and STOP_THRESH > lid_data.points[0]:
+            pos = self.drone.getPose()
+            glb_point = self.droneP2GlobalP(lid_data, pos)
+
+
+            self.turnToFinalDest()
+            lid_data = self.drone.getLidarData()
+
 
 
 if __name__ == "__main__":
@@ -226,17 +161,17 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    client.setAtPosition(-346, -700, -20)
+    client.setAtPosition(0, 0, -20)
 
     time.sleep(3)
-    dest = (-500, -800, -20)
+    dest = (0, -800, -20)
     controller = DroneControl(client, dest)
     reach_to_dest = False
     loop_counter = 0
 
     while True:
         print("Roundddddd: " + str(loop_counter))
-        reach_to_dest = controller.fly_to_dest(dest=dest)
+        reach_to_dest = controller.flyToFinalDest()
         if reach_to_dest:
             break
 
