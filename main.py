@@ -4,22 +4,22 @@ from DroneClient import DroneClient
 import time
 import math
 import airsim.utils
-import numpy
 
-DEST_ARRIVED_DIST = 3
+DEST_ARRIVED_DIST = 2
 SLOWING_DIST = 7
-MAX_SPEED = 15
+MAX_SPEED = 5
 MAX_TIME = 0.62
 URBAN_SPEED = 5
 WALL_SPEED = 5
-WALL_WAIT = 0.5
+WALL_WAIT = 1
 WAIT_LIDAR = 0.1
-STOP_THRESH = 20
-WAIT_SPIN = 1
-BETA = 0.8  # rad
-DEFAULT_FLY_WAIT = 1
+STOP_THRESH = 10
+WAIT_SPIN = 2
+BETA = 1.4  # rad
+DEFAULT_FLY_WAIT = 0.5
 MIN_WALL_DIST = 3
-GO_BACK_DIST = 10
+GO_BACK_DIST = 15
+
 
 class DroneControl:
     def __init__(self, client, final_dest):
@@ -27,6 +27,10 @@ class DroneControl:
         self.final_dest = final_dest
         self.current_speed = 0
         self.x_direction, self.y_direction = self.get_direction(final_dest)
+        self.last_wall_obs = tuple()
+        self.last_xsgin = 1
+        self.last_ysgin = 1
+        self.last_pos = None
 
     def get_direction(self, final_dest):
         curr_pos = self.drone.getPose()
@@ -72,6 +76,7 @@ class DroneControl:
         # print(rz)
         # print(np.matmul(ry, rz))
         rot_matrix = np.matmul(rx, np.matmul(ry, rz))
+        rot_matrix = np.linalg.inv(rot_matrix)
         return rot_matrix
 
     def getTranslationMatrix(self):
@@ -85,19 +90,15 @@ class DroneControl:
 
     def droneP2GlobalP(self, data, pos):
         print("droneP2GlobalP")
-        drone_point = np.array([data.points[0], data.points[1], data.points[2]])
+        drone_point = np.array([data.points[0], 0, 0])
+        print("pos")
+        print(pos)
+        print("drone_point")
         print(drone_point)
         rot_matrix = self.getRotMatrix(pos)
-        print(rot_matrix)
-        #  print(np.matmul(rot_matrix, drone_point))
         global_point = np.matmul(rot_matrix, drone_point) + np.array([pos.pos.x_m, pos.pos.y_m, pos.pos.z_m])
-      #  global_point = np.matmul(drone_point, rot_matrix) + np.array([pos.pos.x_m, pos.pos.y_m, pos.pos.z_m])
-        print(data)
-        print("-"*10)
-        print(np.matmul(drone_point, rot_matrix))
-        print("-" * 10)
-        print(pos)
-        #  print("-" * 10)
+        print("R*P")
+        print(np.matmul(rot_matrix, drone_point))
         print("global_point")
         print(global_point)
         #   exit()
@@ -129,6 +130,21 @@ class DroneControl:
 
     def ReachToFinalDest(self):
         dist_left = self.getDistToFinalDest()
+        if dist_left <= DEST_ARRIVED_DIST:
+            return True
+        return False
+
+    def getDistToDest(self, dest):
+        curr_pos = self.drone.getPose()
+        curr_x = curr_pos.pos.x_m
+        curr_y = curr_pos.pos.y_m
+        dest_x = dest[0]
+        dest_y = dest[1]
+        dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2)
+        return dist_left
+
+    def reachToDest(self, dest):
+        dist_left = self.getDistToDest(dest)
         if dist_left <= DEST_ARRIVED_DIST:
             return True
         return False
@@ -173,9 +189,37 @@ class DroneControl:
         self.drone.flyToPosition(*self.final_dest, self.current_speed)
         time.sleep(WAIT_SPIN)
 
+    def turnToLastObs(self):
+        print("turnToLastObs")
+        pos = self.drone.getPose()
+        dist = math.sqrt((pos.pos.x_m - self.last_pos.pos.x_m) ** 2 + (pos.pos.y_m - self.last_pos.pos.y_m) ** 2)
+        z = math.tan(BETA)*dist
+        xd = math.sin(BETA) * z
+        yd = math.cos(BETA) * z
+        zd = self.final_dest[2]
+        new_point = (pos.pos.x_m + self.last_xsgin * xd, pos.pos.y_m - self.last_ysgin * yd, zd)
+        self.current_speed = 0
+        self.drone.flyToPosition(*new_point, self.current_speed)
+        print(new_point)
+        time.sleep(WAIT_SPIN)
+
+    def flyToLastObs(self):
+        print("flyToLastObs")
+        pos = self.drone.getPose()
+        dist = math.sqrt((pos.pos.x_m - self.last_pos.pos.x_m) ** 2 + (pos.pos.y_m - self.last_pos.pos.y_m) ** 2)
+        z = math.tan(BETA)*dist
+        xd = math.sin(BETA) * z
+        yd = math.cos(BETA) * z
+        zd = self.final_dest[2]
+        new_point = (pos.pos.x_m + self.last_xsgin * xd, pos.pos.y_m - self.last_ysgin * yd, zd)
+        self.current_speed = WALL_SPEED
+        self.drone.flyToPosition(*new_point, self.current_speed)
+        print(new_point)
+        time.sleep(WAIT_SPIN)
+
     def getShiftDist(self, pos, obs_point):
-     #   radius = float(math.sqrt((pos.pos.x_m-obs_point[0]) ** 2 + (pos.pos.y_m-obs_point[1]) ** 2) )/ 2
-        radius = 20
+        #   radius = float(math.sqrt((pos.pos.x_m-obs_point[0]) ** 2 + (pos.pos.y_m-obs_point[1]) ** 2) )/ 2
+        radius = 25
         xd = math.cos(BETA) * radius
         yd = math.sin(BETA) * radius
         return xd, yd
@@ -184,12 +228,18 @@ class DroneControl:
         print("goBack")
         xdir = obs[0] - pos.pos.x_m
         ydir = obs[1] - pos.pos.y_m
-        return (obs[0] - xdir * GO_BACK_DIST, obs[1] - ydir * GO_BACK_DIST, self.final_dest[2])
+        obs_list = list(obs)
+        self.last_wall_obs = tuple(obs_list)
+        obs_list[0] = obs[0] - xdir * GO_BACK_DIST
+        obs_list[1] = obs[1] - ydir * GO_BACK_DIST
+        obs_list[2] = self.final_dest[2]
+        return tuple(obs_list)
 
     def getNewDest(self, pos, obs_point):
         print("getNewDest")
         dist = math.sqrt((pos.pos.x_m - obs_point[0]) ** 2 + (pos.pos.y_m - obs_point[1]) ** 2)
         if dist < MIN_WALL_DIST:
+            # pass
             return self.goBack(pos, obs_point)
 
         xsign = 1
@@ -201,14 +251,22 @@ class DroneControl:
         xd, yd = self.getShiftDist(pos, obs_point)
         zd = self.final_dest[2]
         new_point = (pos.pos.x_m + xsign * xd, pos.pos.y_m + ysign * yd, zd)
+        obs_list = list(obs_point)
+        obs_list[0] = obs_list[0] + xsign * xd
+        obs_list[1] = obs_list[1] + ysign * yd
+        self.last_wall_obs = tuple(obs_list)
+        self.last_xsgin = xsign
+        self.last_ysgin = ysign
+        self.last_pos = pos
         return new_point
 
     def followTheWall(self):
-        print("followTheWall")
         self.turnToFinalDest()
         lid_data = self.drone.getLidarData()
-        print(lid_data.points)
         while len(lid_data.points) >= 3 and STOP_THRESH > lid_data.points[0]:
+            print("followTheWall")
+            print("lid:")
+            print(lid_data.points)
             pos = self.drone.getPose()
             obs_point = self.droneP2GlobalP(lid_data, pos)
             new_point = self.getNewDest(pos, obs_point)
@@ -222,12 +280,24 @@ class DroneControl:
             print(new_point)
             print("with speed: ")
             print(speed)
-            time.sleep(WAIT_SPIN)
-            self.turnToFinalDest()
-            lid_data = self.drone.getLidarData()
-            if len(lid_data.points) < 3:
-                time.sleep(WALL_WAIT)
+            while not self.reachToDest(new_point):
+                time.sleep(WAIT_SPIN)
                 lid_data = self.drone.getLidarData()
+                if lid_data.points[0] < MIN_WALL_DIST:
+                    break
+            self.turnToLastObs()
+            lid_data = self.drone.getLidarData()
+            pos = self.drone.getPose()
+            print("curr pos:")
+            print(pos)
+            print("lid_data:")
+            print(lid_data)
+            #  exit()
+            if len(lid_data.points) < 3 or STOP_THRESH > lid_data.points[0]:
+                time.sleep(WAIT_LIDAR)
+                lid_data = self.drone.getLidarData()
+                if len(lid_data.points) < 3 or STOP_THRESH < lid_data.points[0]:
+                    self.flyToLastObs()
 
 
 if __name__ == "__main__":
