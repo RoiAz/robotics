@@ -13,13 +13,13 @@ URBAN_SPEED = 5
 WALL_SPEED = 5
 WALL_WAIT = 1
 WAIT_LIDAR = 0.7
-STOP_THRESH = 20
+STOP_THRESH = 30
 WAIT_SPIN = 2
 BETA = 0.7  # rad
-SIGHT_ANGLE = 0.5
+SIGHT_ANGLE = 0.7
 DEFAULT_FLY_DIST = 10
 DEFAULT_FLY_WAIT = 1
-CLEAR_FLY_DIST = 10
+CLEAR_FLY_DIST = 20
 CLEAR_FLY_WAIT = 10
 MIN_WALL_DIST_Y = 0.2
 MIN_WALL_DIST_X = 5
@@ -234,6 +234,8 @@ class DroneControl:
             #     # self.goBack()
             #     return True
             dist = math.sqrt(x**2 + y**2)
+            print("dist")
+            print(dist)
             # if dist < STOP_THRESH:
             #     print("obs too close")
             #     pos = controller.drone.getPose()
@@ -255,10 +257,11 @@ class DroneControl:
 
     def turnRight(self):
         print("turnRight")
+        time.sleep(WAIT_LIDAR)
         lid_data = self.getLidarList()
         turn_counter = 0
         while self.isObsInSight(lid_data):
-            time.sleep(10) #debug
+            time.sleep(5) #debug
             print("turnRightLoop")
             right_vec = self.getRightVec()
             pos = controller.drone.getPose()
@@ -276,12 +279,12 @@ class DroneControl:
 
     def turnLeft(self, num_of_turns):
         print("turnLeft")
-        angle = num_of_turns * BETA
-        left_vec = self.getLeftVec(angle)
+        time.sleep(5)  # debug
+       # angle = num_of_turns * BETA
+        left_vec = self.getLeftVec(BETA)
         pos = controller.drone.getPose()
         point = controller.droneP2GlobalP(left_vec, pos)
         self.drone.flyToPosition(*point, 0)
-        time.sleep(10)  # debug
 
         time.sleep(WAIT_SPIN)
 
