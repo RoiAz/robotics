@@ -245,6 +245,11 @@ class DroneControl:
             #     self.drone.flyToPosition(*point, 0)
             if abs(x) <= MIN_WALL_DIST_X or abs(y) <= MIN_WALL_DIST_Y:
                 self.goBack()
+                lid_data = self.drone.getLidarData().points
+                if len(lid_data) < 3:
+                    return False, None, None
+                x = lid_data[0]
+                y = lid_data[1]
                 return True, x, y
             if wall:
                 if (abs(math.atan(
