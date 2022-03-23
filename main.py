@@ -20,13 +20,13 @@ WALL_SPEED = 5
 WALL_WAIT = 0.3
 WAIT_LIDAR = 0.7
 STOP_THRESH = 35
-STOP_THRESH_WALL = 15
-WAIT_SPIN = 2
+STOP_THRESH_WALL = 13
+WAIT_SPIN = 0.5
 BETA = 0.5  # rad
-LEFT_ANGLE = 0.2
+LEFT_ANGLE = 0.1
 
 SIGHT_ANGLE = 0.6
-SIGHT_ANGLE_WALL = 0.5
+SIGHT_ANGLE_WALL = 0.3
 
 DEFAULT_FLY_DIST = 15
 DEFAULT_FLY_WAIT = 1
@@ -327,10 +327,10 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    client.setAtPosition(-300, -700, -100)
+    client.setAtPosition(-300, -700, -20)
 
     time.sleep(3)
-    dest = (-400, -800, -100)
+    dest = (-50, -800, -20)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
