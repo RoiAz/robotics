@@ -17,18 +17,18 @@ SLOWING_DIST = 7
 MAX_SPEED = 5
 MAX_TIME = 0.62
 WALL_SPEED = 5
-WALL_WAIT = 0.3
+WALL_WAIT = 0.2
 WAIT_LIDAR = 0.7
 STOP_THRESH = 35
 STOP_THRESH_WALL = 13
 WAIT_SPIN = 0.5
-BETA = 0.5  # rad
+BETA = 0.4  # rad
 LEFT_ANGLE = 0.1
 
 SIGHT_ANGLE = 0.6
 SIGHT_ANGLE_WALL = 0.3
 
-DEFAULT_FLY_DIST = 15
+DEFAULT_FLY_DIST = 11
 DEFAULT_FLY_WAIT = 1
 CLEAR_FLY_DIST = 20
 CLEAR_FLY_WAIT = 10
@@ -37,6 +37,7 @@ MIN_WALL_DIST_X = 1
 GO_BACK_DIST = 5
 LIDAR_SAMPLES = 4
 LIDAR_SAMPLES_WAIT = 0.5
+MAX_MAP_SIZE = 500
 
 
 class DroneControl:
@@ -49,6 +50,7 @@ class DroneControl:
         self.last_xsgin = 1
         self.last_ysgin = 1
         self.last_pos = None
+        self.obs_map = np.zeros((2 * MAX_MAP_SIZE, 2 * MAX_MAP_SIZE, 2 * MAX_MAP_SIZE), dtype=np.uint8)
 
     def get_direction(self, final_dest):
         curr_pos = self.drone.getPose()
@@ -232,6 +234,8 @@ class DroneControl:
             for i in range(0, len(lid_data), 3):
                 x = lid_data[i]
                 y = lid_data[i + 1]
+                z = lid_data[i + 2]
+                self.addToObsMap(x, y, z)
                 print_("atan")
                 print_(abs(math.atan(abs(y / x))))
                 dist = math.sqrt(x ** 2 + y ** 2)
@@ -312,12 +316,30 @@ class DroneControl:
             self.goToDest(glb_point)
             if num_of_turns and not is_back:
                 self.turnLeft(num_of_turns)
+            currd = self.getCurrDirect()
+            if self.ClearPathToFinalDest(True):
+                return
+            else:
+                self.turnToDest(currd)
             is_obs, is_back = self.isObsInSight(wall=True)
         pos = self.drone.getPose()
         glb_point = self.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
         speed = self.getMaxSpeed(glb_point)
         self.drone.flyToPosition(*glb_point, speed)
         self.goToDest(glb_point)
+
+    def getCurrDirect(self):
+        return self.droneP2GlobalP((1, 0, 0), self.drone.getPose())
+
+    def turnToDest(self, dir):
+        self.drone.flyToPosition(*dir, 0)
+        time.sleep(WAIT_SPIN)
+
+    def addToObsMap(self, x, y, z):
+        glb_point = self.droneP2GlobalP((x, y, z), self.drone.getPose())
+        self.obs_map[(math.floor(glb_point[0]) + MAX_MAP_SIZE) % MAX_MAP_SIZE][
+            (math.floor(glb_point[1]) + MAX_MAP_SIZE) % MAX_MAP_SIZE] \
+            [(math.floor(glb_point[2]) + MAX_MAP_SIZE) % MAX_MAP_SIZE] = 1
 
 
 if __name__ == "__main__":
@@ -330,7 +352,7 @@ if __name__ == "__main__":
     client.setAtPosition(-300, -700, -20)
 
     time.sleep(3)
-    dest = (-50, -800, -20)
+    dest = (-310, -710, -20)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
@@ -359,8 +381,21 @@ if __name__ == "__main__":
     while True:
         print("Roundddddd: " + str(loop_counter))
         reach_to_dest = controller.flyToFinalDest()
+        print("dist to dest: " + str(controller.getDistToFinalDest()))
         if reach_to_dest:
             break
 
         # time.sleep(wait_time)
         loop_counter = loop_counter + 1
+    print("curr dist: " + str(controller.drone.getPose()))
+
+    from matplotlib import pyplot as plt
+
+    plt.rcParams["figure.figsize"] = [7.00, 3.50]
+    plt.rcParams["figure.autolayout"] = True
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    data = controller.obs_map
+    z, x, y = data.nonzero()
+    ax.scatter(x, y, z, c=z, alpha=1)
+    plt.show()
