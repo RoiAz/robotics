@@ -5,16 +5,15 @@ import time
 import math
 import airsim.utils
 
-
+DEBUG = 0
 def print_(string):
-    debug = 1
-    if debug:
+    if DEBUG:
         print(string)
 
 
 DEST_ARRIVED_DIST = 4
 SLOWING_DIST = 7
-MAX_SPEED = 5
+MAX_SPEED = 15
 MAX_TIME = 0.62
 WALL_SPEED = 5
 WALL_WAIT = 0.2
@@ -22,8 +21,8 @@ WAIT_LIDAR = 0.7
 STOP_THRESH = 35
 STOP_THRESH_WALL = 13
 WAIT_SPIN = 0.5
-BETA = 0.4  # rad
-LEFT_ANGLE = 0.1
+BETA = 0.5  # rad
+LEFT_ANGLE = 0.4
 
 SIGHT_ANGLE = 0.6
 SIGHT_ANGLE_WALL = 0.3
@@ -33,10 +32,12 @@ DEFAULT_FLY_WAIT = 1
 CLEAR_FLY_DIST = 20
 CLEAR_FLY_WAIT = 10
 MIN_WALL_DIST_Y = 0.2
+MIN_WALL_DIST_Z = 0.5
+GO_UP_MIN = 3
 MIN_WALL_DIST_X = 1
 GO_BACK_DIST = 5
 LIDAR_SAMPLES = 4
-LIDAR_SAMPLES_WAIT = 0.5
+LIDAR_SAMPLES_WAIT = 0.3
 MAX_MAP_SIZE = 500
 
 
@@ -170,13 +171,15 @@ class DroneControl:
         dist_left = math.sqrt((dest_x - curr_x) ** 2 + (dest_y - curr_y) ** 2)
         return dist_left
 
-    def goToDest(self, destination):
+    def goToDest(self, destination, wall=True):
         print("goToDest")
         while not self.reachToDest(destination):
-            time.sleep(WALL_WAIT)
-            is_obs, _ = self.isObsInSight(wall=True)
+            # time.sleep(WALL_WAIT)
+            is_obs, _, is_go_up = self.isObsInSight(wall)
             if is_obs:
                 break
+            elif is_go_up:
+                self.drone.flyToPosition(*destination, self.getMaxSpeed(destination))
 
     def reachToDest(self, curr_dest):
         print_("reachToDest")
@@ -192,7 +195,7 @@ class DroneControl:
         if no_speed:
             self.current_speed = 0
         self.drone.flyToPosition(*self.final_dest, self.current_speed)
-        is_obs, _ = self.isObsInSight()
+        is_obs, _, _ = self.isObsInSight()
         return (not is_obs), _
 
     def flyToFinalDest(self):
@@ -203,7 +206,7 @@ class DroneControl:
         if clear_path:
             print("There is a Clear path to final dest")
             self.drone.flyToPosition(*self.final_dest, self.getMaxSpeed(self.final_dest))
-            self.goToDest(self.final_dest)
+            self.goToDest(self.final_dest, False)
         else:
             print("Wall detected")
             self.followTheWall(True)
@@ -222,15 +225,20 @@ class DroneControl:
         time.sleep(WAIT_SPIN)
 
     def getRightVec(self):
-        return DEFAULT_FLY_DIST * math.sin(BETA), -DEFAULT_FLY_DIST * math.cos(BETA), 0
+        return DEFAULT_FLY_DIST * math.cos(BETA), -DEFAULT_FLY_DIST * math.sin(BETA), 0
 
     def isObsInSight(self, wall=False):
+        is_go_up = False
         for i in range(LIDAR_SAMPLES):
             print_("isObsInSightLoop")
             time.sleep(LIDAR_SAMPLES_WAIT)
             lid_data = self.drone.getLidarData().points
             if len(lid_data) < 3:
                 continue
+            global MAX_SPEED
+            if MAX_SPEED != WALL_SPEED:
+                MAX_SPEED = WALL_SPEED
+                time.sleep(WAIT_SPIN)
             for i in range(0, len(lid_data), 3):
                 x = lid_data[i]
                 y = lid_data[i + 1]
@@ -241,6 +249,9 @@ class DroneControl:
                 dist = math.sqrt(x ** 2 + y ** 2)
                 print_("dist")
                 print_(dist)
+                if self.obsBenath(x, y, z):
+                    self.goUp()
+                    is_go_up = True
                 if dist < MIN_WALL_DIST_X:
                     print("obs in fly path1")
                     self.goBack(x, y)
@@ -249,30 +260,32 @@ class DroneControl:
                     #     return False, None, None
                     # x = lid_data[0]
                     # y = lid_data[1]
-                    return True, True
+                    return True, True, is_go_up
                 if wall:
+                    print_("wall loop")
                     if abs(math.atan(abs(y / x))) <= SIGHT_ANGLE_WALL and dist < STOP_THRESH_WALL:
                         print("obs in fly path2")
                         pos = controller.drone.getPose()
                         point = controller.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
                         self.drone.flyToPosition(*point, 0)
                         time.sleep(WAIT_SPIN)
-                        return True, False
+                        return True, False, is_go_up
                 else:
+                    print_("not wall loop")
                     if abs(math.atan(abs(y / x))) <= SIGHT_ANGLE and dist < STOP_THRESH:
                         print("obs in fly path3")
                         pos = controller.drone.getPose()
                         point = controller.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
                         self.drone.flyToPosition(*point, 0)
                         time.sleep(WAIT_SPIN)
-                        return True, False
-        return False, False
+                        return True, False, is_go_up
+        return False, False, is_go_up
 
     def turnRight(self):
         print("turnRight")
         time.sleep(WAIT_LIDAR)
         turn_counter = 0
-        is_obs, is_back = self.isObsInSight(wall=True)
+        is_obs, is_back, _ = self.isObsInSight(wall=True)
         while is_obs:
             print("turnRightLoop")
             right_vec = self.getRightVec()
@@ -282,13 +295,13 @@ class DroneControl:
             self.drone.flyToPosition(*point, 0)
             time.sleep(WAIT_SPIN)
             turn_counter = turn_counter + 1
-            is_obs, is_back = self.isObsInSight(wall=True)
+            is_obs, is_back, _ = self.isObsInSight(wall=True)
         print_("NUM OF TURNS")
         print_(turn_counter)
         return turn_counter, is_back
 
     def getLeftVec(self, angle):
-        return DEFAULT_FLY_DIST * math.sin(angle), DEFAULT_FLY_DIST * math.cos(angle), 0
+        return DEFAULT_FLY_DIST * math.cos(angle), DEFAULT_FLY_DIST * math.sin(angle), 0
 
     def turnLeft(self, num_of_turns):
         print("turnLeft")
@@ -313,7 +326,7 @@ class DroneControl:
             print(glb_point)
             print("with speed: ")
             print(speed)
-            self.goToDest(glb_point)
+            self.goToDest(glb_point, True)
             if num_of_turns and not is_back:
                 self.turnLeft(num_of_turns)
             currd = self.getCurrDirect()
@@ -321,12 +334,12 @@ class DroneControl:
                 return
             else:
                 self.turnToDest(currd)
-            is_obs, is_back = self.isObsInSight(wall=True)
+            is_obs, is_back, _ = self.isObsInSight(wall=True)
         pos = self.drone.getPose()
         glb_point = self.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
         speed = self.getMaxSpeed(glb_point)
         self.drone.flyToPosition(*glb_point, speed)
-        self.goToDest(glb_point)
+        self.goToDest(glb_point, True)
 
     def getCurrDirect(self):
         return self.droneP2GlobalP((1, 0, 0), self.drone.getPose())
@@ -341,6 +354,21 @@ class DroneControl:
             (math.floor(glb_point[1]) + MAX_MAP_SIZE) % MAX_MAP_SIZE] \
             [(math.floor(glb_point[2]) + MAX_MAP_SIZE) % MAX_MAP_SIZE] = 1
 
+    def obsBenath(self, x, y, z):
+        print_("obsBenath")
+        if DEBUG:
+            print("x: %s y: %s z: %s" % (x, y, z))
+        return z == 0
+       # return (abs(x) > GO_UP_MIN) and (abs(y) > GO_UP_MIN) and abs(z) < MIN_WALL_DIST_Z
+
+    def goUp(self):
+        print("goUp")
+        pos = self.drone.getPose()
+        glb_point = self.droneP2GlobalP((0, 0, -3), pos)
+        speed = self.getMaxSpeed(glb_point)
+        self.drone.flyToPosition(*glb_point, speed)
+        time.sleep(WALL_WAIT)
+
 
 if __name__ == "__main__":
     client = DroneClient()
@@ -349,10 +377,10 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    client.setAtPosition(-300, -700, -20)
+    client.setAtPosition(-150, -300, -20)
 
     time.sleep(3)
-    dest = (-310, -710, -20)
+    dest = (-50, -700, -20)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
