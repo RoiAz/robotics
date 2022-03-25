@@ -35,8 +35,8 @@ CLEAR_FLY_WAIT = 10
 MIN_WALL_DIST_Y = 0.2
 MIN_WALL_DIST_Z = 0.5
 GO_UP_MIN = 3
-MIN_WALL_DIST_X = 2
-GO_BACK_DIST = 5
+MIN_WALL_DIST_X = 0.5
+GO_BACK_DIST = 1
 LIDAR_SAMPLES = 4
 LIDAR_SAMPLES_WAIT = 0.2
 MAX_MAP_SIZE = 500
@@ -232,7 +232,7 @@ class DroneControl:
                     is_go_up = True
                 if dist < MIN_WALL_DIST_X:
                     print("obs in fly path1")
-                    # self.goBack(x, y)
+                    self.goBack(x, y)
                     return True, True, is_go_up
                 if wall:
                     print_("wall loop")
