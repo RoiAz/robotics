@@ -5,7 +5,9 @@ import time
 import math
 import airsim.utils
 
-DEBUG = 0
+DEBUG = 1
+
+
 def print_(string):
     if DEBUG:
         print(string)
@@ -20,11 +22,11 @@ WALL_WAIT = 0.1
 STOP_THRESH = 35
 STOP_THRESH_WALL = 13
 WAIT_SPIN = 0.2
-BETA = 0.5  # rad
-LEFT_ANGLE = 0.4
+BETA = 0.2  # rad
+LEFT_ANGLE = 0.3
 
-SIGHT_ANGLE = 0.6
-SIGHT_ANGLE_WALL = 0.25
+SIGHT_ANGLE = 0.5
+SIGHT_ANGLE_WALL = 0.1
 
 DEFAULT_FLY_DIST = 11
 DEFAULT_FLY_WAIT = 1
@@ -36,7 +38,7 @@ GO_UP_MIN = 3
 MIN_WALL_DIST_X = 2
 GO_BACK_DIST = 5
 LIDAR_SAMPLES = 4
-LIDAR_SAMPLES_WAIT = 0.3
+LIDAR_SAMPLES_WAIT = 0.2
 MAX_MAP_SIZE = 500
 
 
@@ -212,8 +214,9 @@ class DroneControl:
             lid_data = self.drone.getLidarData().points
             if len(lid_data) < 3:
                 continue
-            global MAX_SPEED
+            global MAX_SPEED, STOP_THRESH
             MAX_SPEED = WALL_SPEED
+            STOP_THRESH = STOP_THRESH_WALL
             for i in range(0, len(lid_data), 3):
                 x = lid_data[i]
                 y = lid_data[i + 1]
@@ -229,7 +232,7 @@ class DroneControl:
                     is_go_up = True
                 if dist < MIN_WALL_DIST_X:
                     print("obs in fly path1")
-                    self.goBack(x, y)
+                    # self.goBack(x, y)
                     return True, True, is_go_up
                 if wall:
                     print_("wall loop")
@@ -238,6 +241,7 @@ class DroneControl:
                         pos = controller.drone.getPose()
                         point = controller.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
                         self.drone.flyToPosition(*point, 0)
+                        self.current_speed = 0
                         time.sleep(WAIT_SPIN)
                         return True, False, is_go_up
                 else:
@@ -248,6 +252,7 @@ class DroneControl:
                         point = controller.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
                         point[2] = self.final_dest[2]
                         self.drone.flyToPosition(*point, 0)
+                        self.current_speed = 0
                         time.sleep(WAIT_SPIN)
                         return True, False, is_go_up
         return False, False, is_go_up
@@ -330,12 +335,13 @@ class DroneControl:
         if DEBUG:
             print("x: %s y: %s z: %s" % (x, y, z))
         return z == 0
-       # return (abs(x) > GO_UP_MIN) and (abs(y) > GO_UP_MIN) and abs(z) < MIN_WALL_DIST_Z
+
+    # return (abs(x) > GO_UP_MIN) and (abs(y) > GO_UP_MIN) and abs(z) < MIN_WALL_DIST_Z
 
     def goUp(self):
         print("goUp")
         pos = self.drone.getPose()
-        glb_point = self.droneP2GlobalP((0, 0, -3), pos)
+        glb_point = self.droneP2GlobalP((-1, 0, -5), pos)
         speed = self.getMaxSpeed(glb_point)
         self.drone.flyToPosition(*glb_point, speed)
         time.sleep(WALL_WAIT)
