@@ -38,7 +38,7 @@ MIN_WALL_DIST_Z = 0.5
 GO_UP_MIN = 3
 MIN_WALL_DIST_X = 1
 GO_BACK_DIST = 10
-GO_BACK_WAIT = 0.2
+GO_BACK_WAIT = 0.3
 LIDAR_SAMPLES = 4
 LIDAR_SAMPLES_WAIT = 0.4
 MAX_MAP_SIZE = 500
@@ -214,7 +214,7 @@ class DroneControl:
         back_vec = (-GO_BACK_DIST, 0, 0)
         point = controller.droneP2GlobalP(back_vec, self.drone.getPose())
         self.drone.flyToPosition(*point, 0)
-        time.sleep(WAIT_SPIN)
+        time.sleep(GO_BACK_WAIT)
 
     def getRightVec(self):
         return DEFAULT_FLY_DIST * math.cos(BETA), -DEFAULT_FLY_DIST * math.sin(BETA), 0
@@ -381,7 +381,7 @@ if __name__ == "__main__":
     client.setAtPosition(-710, -710, -20)
 
     time.sleep(3)
-    dest = (-500, -100, -20)
+    dest = (-1000, -1000, -20)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
