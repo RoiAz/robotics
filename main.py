@@ -381,7 +381,11 @@ if __name__ == "__main__":
     client.setAtPosition(-710, -710, -20)
 
     time.sleep(3)
+<<<<<<< HEAD
+    dest = (-500, -100, -20)
+=======
     dest = (-1000, -1000, -20)
+>>>>>>> 9ba928d (change goback logic)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
