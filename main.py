@@ -15,19 +15,19 @@ def print_(string):
 
 DEST_ARRIVED_DIST = 4
 SLOWING_DIST = 7
-MAX_SPEED = 12
+MAX_SPEED = 10
 GLOBAL_MAX_SPEED = 12
 MAX_TIME = 0.62
-WALL_SPEED = 10
-WALL_WAIT = 0.1
+WALL_SPEED = 7
+WALL_WAIT = 0.2
 STOP_THRESH = 35
 STOP_THRESH_WALL = 20
 WAIT_SPIN = 0.2
 BETA = 0.35  # rad
-LEFT_ANGLE = 0.25
+LEFT_ANGLE = 0.15
 
 SIGHT_ANGLE = 0.6
-SIGHT_ANGLE_WALL = 0.3
+SIGHT_ANGLE_WALL = 0.4
 
 DEFAULT_FLY_DIST = 11
 DEFAULT_FLY_WAIT = 1
@@ -38,9 +38,9 @@ MIN_WALL_DIST_Z = 0.5
 GO_UP_MIN = 3
 MIN_WALL_DIST_X = 1
 GO_BACK_DIST = 10
-GO_BACK_WAIT = 0.3
+GO_BACK_WAIT = 0.4
 LIDAR_SAMPLES = 4
-LIDAR_SAMPLES_WAIT = 0.4
+LIDAR_SAMPLES_WAIT = 0.5
 MAX_MAP_SIZE = 500
 BACK_TO_MAX_CNT = 10
 
@@ -158,14 +158,15 @@ class DroneControl:
     def goToDest(self, destination, wall=True):
         print("goToDest")
         while not self.reachToDest(destination):
+            time.sleep(WALL_WAIT)
             is_obs, _, is_go_up = self.isObsInSight(wall)
             if is_obs:
                 break
             elif is_go_up:
                 self.drone.flyToPosition(*destination, self.getMaxSpeed(destination))
-            elif self.max_speed_cnt >= BACK_TO_MAX_CNT and self.current_speed != GLOBAL_MAX_SPEED:
+            elif self.max_speed_cnt >= BACK_TO_MAX_CNT:
                 speed = self.getMaxSpeed(destination)
-                print("Increasing to max speed: " + str(speed))
+                print_("Increasing to max speed: " + str(speed))
                 self.drone.flyToPosition(*destination, speed)
 
 
@@ -217,7 +218,9 @@ class DroneControl:
         time.sleep(GO_BACK_WAIT)
 
     def getRightVec(self):
-        return DEFAULT_FLY_DIST * math.cos(BETA), -DEFAULT_FLY_DIST * math.sin(BETA), 0
+        #return DEFAULT_FLY_DIST * math.cos(BETA), -DEFAULT_FLY_DIST * math.sin(BETA), 0
+        return DEFAULT_FLY_DIST * math.cos(BETA), -DEFAULT_FLY_DIST * math.sin(BETA), -2
+
 
     def isObsInSight(self, wall=False):
         is_go_up = False
@@ -288,7 +291,7 @@ class DroneControl:
             right_vec = self.getRightVec()
             pos = controller.drone.getPose()
             point = controller.droneP2GlobalP(right_vec, pos)
-            point[2] = self.final_dest[2]
+           # point[2] = self.final_dest[2]
             self.drone.flyToPosition(*point, 0)
             time.sleep(WAIT_SPIN)
             turn_counter = turn_counter + 1
@@ -314,8 +317,8 @@ class DroneControl:
             print("followTheWallLoop")
             num_of_turns, is_back = self.turnRight()
             pos = self.drone.getPose()
-            glb_point = self.droneP2GlobalP((CLEAR_FLY_DIST, 0, 0), pos)
-            glb_point[2] = self.final_dest[2]
+            glb_point = self.droneP2GlobalP((CLEAR_FLY_DIST, 0, 2), pos)
+            #glb_point[2] = self.final_dest[2]
             speed = self.getMaxSpeed(glb_point, wall=True)
             self.drone.flyToPosition(*glb_point, speed)
             print("curr pos:")
@@ -378,14 +381,10 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    client.setAtPosition(-710, -710, -20)
+    client.setAtPosition(-500, -800, -20)
 
     time.sleep(3)
-<<<<<<< HEAD
-    dest = (-500, -100, -20)
-=======
-    dest = (-1000, -1000, -20)
->>>>>>> 9ba928d (change goback logic)
+    dest = (-400, -200, -20)
     controller = DroneControl(client, dest)
     time.sleep(3)
     reach_to_dest = False
