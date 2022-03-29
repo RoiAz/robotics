@@ -28,6 +28,7 @@ WAIT_SPIN = 0.1
 WAIT_SPINL = 0.4
 BETA = 0.33  # rad
 LEFT_ANGLE = 0.9
+CHECK_LEFT_ANGLE = 0.6
 
 SIGHT_ANGLE = 0.6
 SIGHT_ANGLE_WALL = 0.32
@@ -168,7 +169,8 @@ class DroneControl:
 
     def goToDest(self, destination, wall=True):
         print("goToDest")
-        while not self.reachToDest(destination) or self.isOnVec():
+        pos_before = self.getCurrPosArr()
+        while not self.reachToDest(destination) or self.isOnVec(pos_before):
             time.sleep(WALL_WAIT)
             is_obs, _, is_go_up = self.isObsInSight(wall)
             if is_obs:
@@ -350,13 +352,7 @@ class DroneControl:
                 self.turnLeft()
             is_obs, is_back, _ = self.isObsInSight(wall=True)
             if not is_obs:
-                pos = self.drone.getPose()
-                glb_point = self.droneP2GlobalP((DEFAULT_FLY_DIST, 0, FIX_UP_DIST), pos)
-                # glb_point[2] = pos.pos.z_m
-                glb_point[2] = self.final_dest[2]
-                speed = self.getMaxSpeed(glb_point)
-                self.drone.flyToPosition(*glb_point, speed)
-                self.goToDest(glb_point, True)
+                self.goForward()
                 is_obs, is_back, _ = self.isObsInSight(wall=True)
             max_loop_cnt = max_loop_cnt + 1
             if max_loop_cnt >= WALL_MAX_CNT_FL:
@@ -382,6 +378,9 @@ class DroneControl:
 
     def passTheObs(self):
         print("passTheObs")
+        if self.clearFromLeft():
+            self.goForward()
+            return
         self.followTheWall(True)
         pos_before_pass = self.getCurrPosArr()
         while not self.isOnVec(pos_before_pass):
@@ -429,7 +428,31 @@ class DroneControl:
 
     def getCurrPosArr(self):
         curr_pos = self.drone.getPose()
-        return  np.array([curr_pos.pos.x_m, curr_pos.pos.y_m, curr_pos.pos.z_m])
+        return np.array([curr_pos.pos.x_m, curr_pos.pos.y_m, curr_pos.pos.z_m])
+
+    def goForward(self):
+        pos = self.drone.getPose()
+        glb_point = self.droneP2GlobalP((DEFAULT_FLY_DIST, 0, FIX_UP_DIST), pos)
+        glb_point[2] = self.final_dest[2]
+        speed = self.getMaxSpeed(glb_point)
+        self.drone.flyToPosition(*glb_point, speed)
+        self.goToDest(glb_point, True)
+
+    def clearFromLeft(self):
+        left_vec = self.getLeftVec(CHECK_LEFT_ANGLE)
+        pos = controller.drone.getPose()
+        point = controller.droneP2GlobalP(left_vec, pos)
+        point[2] = self.final_dest[2]
+        self.drone.flyToPosition(*point, 0)
+        time.sleep(WAIT_SPIN)
+        is_obs, _, _ = self.isObsInSight(True)
+        if is_obs:
+            print("ClearFromLeft")
+            return False
+        else:
+            print("notClearFromLeft")
+            return True
+
 
 
 if __name__ == "__main__":
@@ -439,11 +462,11 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    start_pos = (-500, -800, -100)  # L shape building
+    start_pos = (-500, -800, -20)  # L shape building
     # dest = (-650, -900, -15) #L shape building
     # start_pos = (-500, -800, -15)
     # dest = (-300, -700, -15) # low building challenge
-    dest = (-850, -450, -100)
+    dest = (-300, -450, -20)
     client.setAtPosition(*start_pos)
 
     time.sleep(3)
