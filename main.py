@@ -13,16 +13,18 @@ def print_(string):
         print(string)
 
 
-MIN_TRI_AREA = 10
+MIN_TRI_AREA = 15
 DEST_ARRIVED_DIST = 4
 SLOWING_DIST = 7
 MAX_SPEED = 10
 GLOBAL_MAX_SPEED = 12
+GLOBAL_MAX_ANGLE = 1
+URBAN_ANGLE = 0.6
 MAX_TIME = 0.62
 WALL_SPEED = 7
-WALL_WAIT = 0.1
+WALL_WAIT = 0.15
 STOP_THRESH = 35
-STOP_THRESH_WALL = 15
+STOP_THRESH_WALL = 18
 MIN_DIST_2VEC = 15
 WAIT_SPIN = 0.1
 WAIT_SPINL = 0.4
@@ -31,7 +33,7 @@ LEFT_ANGLE = 0.9
 CHECK_LEFT_ANGLE = 0.6
 
 SIGHT_ANGLE = 0.6
-SIGHT_ANGLE_WALL = 0.32
+SIGHT_ANGLE_WALL = 0.36
 
 DEFAULT_FLY_DIST = 15
 DEFAULT_FLY_WAIT = 1
@@ -199,6 +201,7 @@ class DroneControl:
             self.current_speed = 0
         if with_turn:
             self.drone.flyToPosition(*self.final_dest, 0)
+            time.sleep(WAIT_SPINL)
         is_obs, _, _ = self.isObsInSight()
         if not is_obs:
             self.drone.flyToPosition(*self.final_dest, self.current_speed)
@@ -239,7 +242,7 @@ class DroneControl:
 
     def isObsInSight(self, wall=False):
         is_go_up = False
-        global MAX_SPEED
+        global MAX_SPEED, SIGHT_ANGLE, STOP_THRESH
         for i in range(LIDAR_SAMPLES):
             print_("isObsInSightLoop")
             time.sleep(LIDAR_SAMPLES_WAIT)
@@ -275,14 +278,17 @@ class DroneControl:
                         self.drone.flyToPosition(*point, 0)
                         self.current_speed = 0
                         self.max_speed_cnt = 0
+                        MAX_SPEED = WALL_SPEED
+                        SIGHT_ANGLE = URBAN_ANGLE
+                        STOP_THRESH = STOP_THRESH_WALL
                         time.sleep(LIDAR_SAMPLES_WAIT)
                         return True, False, is_go_up
                 else:
                     print_("not wall loop")
-                    global STOP_THRESH
                     if alpha <= SIGHT_ANGLE and dist < STOP_THRESH:
                         print("obs in fly path3")
                         MAX_SPEED = WALL_SPEED
+                        SIGHT_ANGLE = URBAN_ANGLE
                         STOP_THRESH = STOP_THRESH_WALL
                         pos = controller.drone.getPose()
                         point = controller.droneP2GlobalP((DEFAULT_FLY_DIST, 0, 0), pos)
@@ -295,6 +301,7 @@ class DroneControl:
         self.max_speed_cnt = self.max_speed_cnt + 1
         if self.max_speed_cnt >= BACK_TO_MAX_CNT:
             MAX_SPEED = GLOBAL_MAX_SPEED
+            SIGHT_ANGLE = GLOBAL_MAX_ANGLE
         return False, False, is_go_up
 
     def turnRight(self):
@@ -454,7 +461,6 @@ class DroneControl:
             return True
 
 
-
 if __name__ == "__main__":
     client = DroneClient()
     client.connect()
@@ -462,11 +468,11 @@ if __name__ == "__main__":
     print(client.isConnected())
 
     time.sleep(4)
-    start_pos = (-500, -800, -20)  # L shape building
+    start_pos = (-500, -800, -100)  # L shape building
     # dest = (-650, -900, -15) #L shape building
     # start_pos = (-500, -800, -15)
     # dest = (-300, -700, -15) # low building challenge
-    dest = (-300, -450, -20)
+    dest = (-300, -450, -100)
     client.setAtPosition(*start_pos)
 
     time.sleep(3)
